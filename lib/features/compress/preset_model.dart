@@ -1,6 +1,9 @@
 // Defines the social media presets and their FFmpeg parameters.
 
-enum SocialPreset { instagram, whatsapp, smartAuto }
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter/widgets.dart';
+
+enum SocialPreset { instagram, whatsapp, smartAuto, custom }
 
 extension SocialPresetInfo on SocialPreset {
   String get label {
@@ -11,9 +14,25 @@ extension SocialPresetInfo on SocialPreset {
         return 'WhatsApp Ready';
       case SocialPreset.smartAuto:
         return 'Smart Auto';
+      case SocialPreset.custom:
+        return 'Custom';
     }
   }
 
+  IconData get icon {
+    switch (this) {
+      case SocialPreset.instagram:
+        return LucideIcons.camera;
+      case SocialPreset.whatsapp:
+        return LucideIcons.messageCircle;
+      case SocialPreset.smartAuto:
+        return LucideIcons.zap;
+      case SocialPreset.custom:
+        return LucideIcons.settings2;
+    }
+  }
+
+  /// Legacy — kept for ResultScreen badge only (smartAuto & custom still render fine)
   String get emoji {
     switch (this) {
       case SocialPreset.instagram:
@@ -22,6 +41,8 @@ extension SocialPresetInfo on SocialPreset {
         return '💬';
       case SocialPreset.smartAuto:
         return '⚡';
+      case SocialPreset.custom:
+        return '🎚️';
     }
   }
 
@@ -33,6 +54,8 @@ extension SocialPresetInfo on SocialPreset {
         return 'Under 16MB · 720p · 1.5 Mbps\nFast delivery, stays clear on mobile';
       case SocialPreset.smartAuto:
         return 'Balanced · H.264 · 3 Mbps\nGood quality for any platform';
+      case SocialPreset.custom:
+        return 'Set your own compression level\nSlide to choose quality vs size';
     }
   }
 
@@ -71,6 +94,16 @@ extension SocialPresetInfo on SocialPreset {
           audioBitrate: '160k',
           fps: 30,
         );
+      case SocialPreset.custom:
+        // Placeholder — custom quality is handled via customQualityPercent
+        return const VideoParams(
+          crf: 23,
+          bitrate: '3000k',
+          maxrate: '4000k',
+          bufsize: '6000k',
+          audioBitrate: '160k',
+          fps: 30,
+        );
     }
   }
 
@@ -83,6 +116,9 @@ extension SocialPresetInfo on SocialPreset {
         // WA compresses anyway, medium quality is fine
         return const ImageParams(quality: 4);
       case SocialPreset.smartAuto:
+        return const ImageParams(quality: 3);
+      case SocialPreset.custom:
+        // Placeholder — custom quality is handled via customQualityPercent
         return const ImageParams(quality: 3);
     }
   }

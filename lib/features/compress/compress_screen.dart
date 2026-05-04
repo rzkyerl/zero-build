@@ -22,6 +22,11 @@ class _CompressScreenState extends State<CompressScreen> {
   bool _compressing = false;
   double _progress = 0;
   String? _thumbPath;
+  int _customQuality = 50; // 1–100%, used when preset == custom
+
+  // ETA tracking
+  DateTime? _compressStartTime;
+  String _etaText = '';
 
   final _ffmpeg = FFmpegService();
 
@@ -29,6 +34,20 @@ class _CompressScreenState extends State<CompressScreen> {
   void initState() {
     super.initState();
     _loadThumbnail();
+  }
+
+  String _calcEta(double progress) {
+    if (progress <= 0.01 || _compressStartTime == null) return '';
+    final elapsed =
+        DateTime.now().difference(_compressStartTime!).inMilliseconds;
+    final totalEstimated = elapsed / progress;
+    final remaining = (totalEstimated - elapsed).round();
+    if (remaining <= 0) return '';
+    final secs = (remaining / 1000).ceil();
+    if (secs < 60) return '~${secs}s left';
+    final mins = secs ~/ 60;
+    final remSecs = secs % 60;
+    return remSecs > 0 ? '~${mins}m ${remSecs}s left' : '~${mins}m left';
   }
 
   Future<void> _loadThumbnail() async {
@@ -52,6 +71,8 @@ class _CompressScreenState extends State<CompressScreen> {
     setState(() {
       _compressing = true;
       _progress = 0;
+      _etaText = '';
+      _compressStartTime = DateTime.now();
     });
 
     try {
@@ -61,14 +82,21 @@ class _CompressScreenState extends State<CompressScreen> {
         result = await _ffmpeg.compressVideo(
           inputPath: widget.media.path,
           preset: _selectedPreset,
+          customQualityPercent: _customQuality,
           onProgress: (p) {
-            if (mounted) setState(() => _progress = p);
+            if (mounted) {
+              setState(() {
+                _progress = p;
+                _etaText = _calcEta(p);
+              });
+            }
           },
         );
       } else {
         result = await _ffmpeg.compressImage(
           inputPath: widget.media.path,
           preset: _selectedPreset,
+          customQualityPercent: _customQuality,
         );
       }
 
@@ -81,6 +109,8 @@ class _CompressScreenState extends State<CompressScreen> {
             result: result,
             mediaType: widget.media.type,
             preset: _selectedPreset,
+            customQualityPercent:
+                _selectedPreset == SocialPreset.custom ? _customQuality : null,
           ),
           transitionsBuilder: (_, animation, __, child) {
             return FadeTransition(opacity: animation, child: child);
@@ -258,13 +288,25 @@ class _CompressScreenState extends State<CompressScreen> {
         ...SocialPreset.values.map(
           (preset) => Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: _PresetCard(
-              preset: preset,
-              selected: _selectedPreset == preset,
-              onTap: _compressing
-                  ? null
-                  : () => setState(() => _selectedPreset = preset),
-            ),
+            child: preset == SocialPreset.custom
+                ? _CustomPresetCard(
+                    selected: _selectedPreset == SocialPreset.custom,
+                    quality: _customQuality,
+                    onTap: _compressing
+                        ? null
+                        : () => setState(
+                            () => _selectedPreset = SocialPreset.custom),
+                    onQualityChanged: _compressing
+                        ? null
+                        : (v) => setState(() => _customQuality = v),
+                  )
+                : _PresetCard(
+                    preset: preset,
+                    selected: _selectedPreset == preset,
+                    onTap: _compressing
+                        ? null
+                        : () => setState(() => _selectedPreset = preset),
+                  ),
           ),
         ),
       ],
@@ -283,6 +325,9 @@ class _CompressScreenState extends State<CompressScreen> {
   }
 
   Widget _buildOptimizeButton() {
+    final label = _selectedPreset == SocialPreset.custom
+        ? 'Optimize · Custom $_customQuality%'
+        : 'Optimize · ${_selectedPreset.label}';
     return ElevatedButton(
       onPressed: _startCompress,
       child: Row(
@@ -290,13 +335,14 @@ class _CompressScreenState extends State<CompressScreen> {
         children: [
           const Icon(LucideIcons.zap, size: 18),
           const SizedBox(width: 8),
-          Text('Optimize · ${_selectedPreset.label}'),
+          Text(label),
         ],
       ),
     );
   }
 
   Widget _buildProgressBar() {
+    final percent = (_progress * 100).toInt();
     return Column(
       children: [
         Row(
@@ -310,12 +356,27 @@ class _CompressScreenState extends State<CompressScreen> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-            Text(
-              '${(_progress * 100).toInt()}%',
-              style: const TextStyle(
-                color: Color(0xFF888888),
-                fontSize: 14,
-              ),
+            Row(
+              children: [
+                if (_etaText.isNotEmpty) ...[
+                  Text(
+                    _etaText,
+                    style: const TextStyle(
+                      color: Color(0xFF555555),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Text(
+                  '$percent%',
+                  style: const TextStyle(
+                    color: Color(0xFF888888),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -364,7 +425,21 @@ class _PresetCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Text(preset.emoji, style: const TextStyle(fontSize: 28)),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: selected
+                    ? const Color(0xFF2A2A2A)
+                    : const Color(0xFF1A1A1A),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                preset.icon,
+                color: selected ? Colors.white : const Color(0xFF888888),
+                size: 20,
+              ),
+            ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -411,6 +486,175 @@ class _PlaceholderIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Icon(icon, color: const Color(0xFF333333), size: 48),
+    );
+  }
+}
+
+/// Card for the Custom preset — shows a quality slider when selected.
+class _CustomPresetCard extends StatelessWidget {
+  final bool selected;
+  final int quality; // 1–100
+  final VoidCallback? onTap;
+  final ValueChanged<int>? onQualityChanged;
+
+  const _CustomPresetCard({
+    required this.selected,
+    required this.quality,
+    this.onTap,
+    this.onQualityChanged,
+  });
+
+  String _qualityLabel(int q) {
+    if (q >= 80) return 'High quality · larger file';
+    if (q >= 50) return 'Balanced quality & size';
+    if (q >= 25) return 'Smaller file · some loss';
+    return 'Maximum compression';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF1A1A1A) : const Color(0xFF0F0F0F),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? Colors.white : const Color(0xFF1E1E1E),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row (same layout as _PresetCard)
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFF2A2A2A)
+                        : const Color(0xFF1A1A1A),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    LucideIcons.settings2,
+                    color: selected ? Colors.white : const Color(0xFF888888),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Custom',
+                        style: TextStyle(
+                          color:
+                              selected ? Colors.white : const Color(0xFFCCCCCC),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        selected
+                            ? _qualityLabel(quality)
+                            : 'Set your own compression level',
+                        style: const TextStyle(
+                          color: Color(0xFF666666),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selected)
+                  const Icon(
+                    LucideIcons.circleCheck,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+              ],
+            ),
+            // Slider — only visible when selected
+            if (selected) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text(
+                    'Quality',
+                    style: TextStyle(
+                      color: Color(0xFF888888),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF111111),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF2A2A2A)),
+                    ),
+                    child: Text(
+                      '$quality%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SliderTheme(
+                data: const SliderThemeData(
+                  trackHeight: 3,
+                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 8),
+                  overlayShape: RoundSliderOverlayShape(overlayRadius: 16),
+                  activeTrackColor: Colors.white,
+                  inactiveTrackColor: Color(0xFF2A2A2A),
+                  thumbColor: Colors.white,
+                  overlayColor: Colors.white12,
+                ),
+                child: Slider(
+                  value: quality.toDouble(),
+                  min: 10,
+                  max: 100,
+                  divisions: 18, // steps of 5%
+                  onChanged: onQualityChanged != null
+                      ? (v) => onQualityChanged!(v.round())
+                      : null,
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Smaller',
+                        style:
+                            TextStyle(color: Color(0xFF555555), fontSize: 11)),
+                    Text('Better quality',
+                        style:
+                            TextStyle(color: Color(0xFF555555), fontSize: 11)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

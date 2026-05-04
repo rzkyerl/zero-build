@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/services/media_picker_service.dart';
 import '../../core/utils/toast_utils.dart';
 import '../compress/compress_screen.dart';
+import '../settings/settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -207,6 +208,22 @@ class _HomeScreenState extends State<HomeScreen>
                 fontWeight: FontWeight.w700,
                 letterSpacing: 4,
               ),
+            ),
+            const Spacer(),
+            IconButton(
+              onPressed: () => Navigator.push(
+                context,
+                PageRouteBuilder(
+                  pageBuilder: (_, animation, __) => const SettingsScreen(),
+                  transitionsBuilder: (_, animation, __, child) =>
+                      FadeTransition(opacity: animation, child: child),
+                  transitionDuration: const Duration(milliseconds: 200),
+                ),
+              ),
+              icon: const Icon(LucideIcons.settings, size: 20),
+              color: const Color(0xFF555555),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
             ),
           ],
         ),

@@ -5,6 +5,7 @@ import 'package:video_player/video_player.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/services/ffmpeg_service.dart';
 import '../../core/services/media_picker_service.dart';
+import '../../core/services/settings_service.dart';
 import '../../core/utils/file_utils.dart';
 import '../../core/utils/toast_utils.dart';
 import '../compress/preset_model.dart';
@@ -13,12 +14,14 @@ class ResultScreen extends StatefulWidget {
   final CompressResult result;
   final MediaType mediaType;
   final SocialPreset preset;
+  final int? customQualityPercent;
 
   const ResultScreen({
     super.key,
     required this.result,
     required this.mediaType,
     required this.preset,
+    this.customQualityPercent,
   });
 
   @override
@@ -29,6 +32,7 @@ class _ResultScreenState extends State<ResultScreen>
     with SingleTickerProviderStateMixin {
   bool _saving = false;
   String? _savedPath;
+  bool _autoSaveEnabled = false;
 
   // Video player
   VideoPlayerController? _videoController;
@@ -57,6 +61,80 @@ class _ResultScreenState extends State<ResultScreen>
 
     if (widget.mediaType == MediaType.video) {
       _initVideoPlayer();
+    }
+
+    _checkAutoSave();
+  }
+
+  Future<void> _checkAutoSave() async {
+    final settings = await SettingsService.getInstance();
+    if (!mounted) return;
+    setState(() => _autoSaveEnabled = settings.autoSave);
+    if (settings.autoSave) {
+      // Small delay so the result screen animation plays first
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted) _save(silent: true);
+    }
+  }
+
+  // ── Close / back handling ──────────────────────────────────────────────────
+
+  /// Called when user taps X or presses back.
+  /// Shows a confirmation dialog if the file hasn't been saved yet
+  /// and auto-save is disabled.
+  Future<void> _onClose() async {
+    final needsConfirm = _savedPath == null && !_autoSaveEnabled;
+    if (!needsConfirm) {
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
+
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111111),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Leave without saving?',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: const Text(
+          'Your compressed file hasn\'t been saved to the gallery yet. '
+          'It will be lost if you leave.',
+          style: TextStyle(
+            color: Color(0xFF888888),
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Stay',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Leave',
+              style: TextStyle(color: Color(0xFF666666)),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if ((leave ?? false) && mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
@@ -92,7 +170,7 @@ class _ResultScreenState extends State<ResultScreen>
     super.dispose();
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool silent = false}) async {
     if (_saving) return;
     setState(() => _saving = true);
     try {
@@ -103,12 +181,15 @@ class _ResultScreenState extends State<ResultScreen>
           _savedPath = 'saved';
           _saving = false;
         });
-        _showSnack('Saved to Gallery ✓');
+        showSuccessToast(
+          context,
+          silent ? 'Auto-saved to Gallery' : 'Saved to Gallery',
+        );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        _showSnack('Save failed: $e');
+        showErrorToast(context, 'Save failed: $e');
       }
     }
   }
@@ -120,45 +201,51 @@ class _ResultScreenState extends State<ResultScreen>
         text: 'Compressed with Zero',
       );
     } catch (e) {
-      _showSnack('Share failed: $e');
+      if (mounted) {
+        showErrorToast(context, 'Share failed: $e');
+      }
     }
   }
 
-  void _showSnack(String msg) => showTopToast(context, msg);
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildTopBar(),
-            Expanded(
-              child: FadeTransition(
-                opacity: _fadeAnim,
-                child: SlideTransition(
-                  position: _slideAnim,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 16),
-                        _buildSuccessBadge(),
-                        const SizedBox(height: 28),
-                        _buildPreviewCard(),
-                        const SizedBox(height: 24),
-                        _buildSizeComparison(),
-                        const SizedBox(height: 16),
-                        _buildPresetBadge(),
-                        const SizedBox(height: 32),
-                      ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onClose();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildTopBar(),
+              Expanded(
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: SlideTransition(
+                    position: _slideAnim,
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 16),
+                          _buildSuccessBadge(),
+                          const SizedBox(height: 28),
+                          _buildPreviewCard(),
+                          const SizedBox(height: 24),
+                          _buildSizeComparison(),
+                          const SizedBox(height: 16),
+                          _buildPresetBadge(),
+                          const SizedBox(height: 32),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            _buildBottomActions(),
-          ],
+              _buildBottomActions(),
+            ],
+          ),
         ),
       ),
     );
@@ -170,8 +257,7 @@ class _ResultScreenState extends State<ResultScreen>
       child: Row(
         children: [
           IconButton(
-            onPressed: () =>
-                Navigator.of(context).popUntil((route) => route.isFirst),
+            onPressed: _onClose,
             icon: const Icon(LucideIcons.x, size: 20),
             color: const Color(0xFF666666),
           ),
@@ -439,13 +525,18 @@ class _ResultScreenState extends State<ResultScreen>
   }
 
   Widget _buildPresetBadge() {
+    final presetLabel = widget.preset == SocialPreset.custom &&
+            widget.customQualityPercent != null
+        ? 'Custom ${widget.customQualityPercent}%'
+        : widget.preset.label;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(widget.preset.emoji, style: const TextStyle(fontSize: 15)),
+        Icon(widget.preset.icon, color: const Color(0xFF666666), size: 15),
         const SizedBox(width: 6),
         Text(
-          widget.preset.label,
+          presetLabel,
           style: const TextStyle(
               color: Color(0xFF666666),
               fontSize: 13,
@@ -480,32 +571,35 @@ class _ResultScreenState extends State<ResultScreen>
       ),
       child: Column(
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.black),
-                    )
-                  : Icon(
-                      _savedPath != null
-                          ? LucideIcons.circleCheck
-                          : LucideIcons.download,
-                      size: 18,
-                    ),
-              label: Text(_saving
-                  ? 'Saving...'
-                  : _savedPath != null
-                      ? 'Saved!'
-                      : 'Save to Gallery'),
+          // Save button — hidden when auto-save is on (already saved automatically)
+          if (!_autoSaveEnabled) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.black),
+                      )
+                    : Icon(
+                        _savedPath != null
+                            ? LucideIcons.circleCheck
+                            : LucideIcons.download,
+                        size: 18,
+                      ),
+                label: Text(_saving
+                    ? 'Saving...'
+                    : _savedPath != null
+                        ? 'Saved!'
+                        : 'Save to Gallery'),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             height: 56,

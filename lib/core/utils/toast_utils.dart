@@ -1,19 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-/// Shows a top-positioned toast with white background and black text.
-void showTopToast(BuildContext context, String message) {
+enum ToastType { info, success, error }
+
+/// Shows a top-positioned toast notification.
+void showTopToast(
+  BuildContext context,
+  String message, {
+  ToastType type = ToastType.info,
+}) {
   final overlay = Overlay.of(context);
   final entry = OverlayEntry(
-    builder: (ctx) => _TopToast(message: message),
+    builder: (ctx) => _TopToast(message: message, type: type),
   );
 
   overlay.insert(entry);
-  Future.delayed(const Duration(seconds: 3), () => entry.remove());
+  Future.delayed(const Duration(seconds: 3), () {
+    if (entry.mounted) entry.remove();
+  });
 }
+
+/// Convenience: show a success toast (e.g. after saving to gallery).
+void showSuccessToast(BuildContext context, String message) =>
+    showTopToast(context, message, type: ToastType.success);
+
+/// Convenience: show an error toast.
+void showErrorToast(BuildContext context, String message) =>
+    showTopToast(context, message, type: ToastType.error);
 
 class _TopToast extends StatefulWidget {
   final String message;
-  const _TopToast({required this.message});
+  final ToastType type;
+
+  const _TopToast({required this.message, required this.type});
 
   @override
   State<_TopToast> createState() => _TopToastState();
@@ -52,6 +71,28 @@ class _TopToastState extends State<_TopToast>
     super.dispose();
   }
 
+  IconData get _icon {
+    switch (widget.type) {
+      case ToastType.success:
+        return LucideIcons.circleCheck;
+      case ToastType.error:
+        return LucideIcons.circleX;
+      case ToastType.info:
+        return LucideIcons.info;
+    }
+  }
+
+  Color get _iconColor {
+    switch (widget.type) {
+      case ToastType.success:
+        return const Color(0xFF4ADE80);
+      case ToastType.error:
+        return const Color(0xFFFF6B6B);
+      case ToastType.info:
+        return const Color(0xFF888888);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
@@ -68,24 +109,33 @@ class _TopToastState extends State<_TopToast>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: const Color(0xFF1A1A1A),
                 borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF2A2A2A)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
+                    color: Colors.black.withValues(alpha: 0.4),
                     blurRadius: 20,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              child: Text(
-                widget.message,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  decoration: TextDecoration.none,
-                ),
+              child: Row(
+                children: [
+                  Icon(_icon, color: _iconColor, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
